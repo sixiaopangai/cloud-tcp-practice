@@ -22,6 +22,12 @@ cn.edu.practice.tcpclient
 TCP调试助手
 ```
 
+作者主页：
+
+```text
+https://github.com/sixiaopangai
+```
+
 ## 与参考 APK 的区别
 
 本 APK 是重新开发的，不是修改原 APK。

@@ -1,16 +1,18 @@
 package cn.edu.practice.tcpclient;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.method.LinkMovementMethod;
+import android.text.util.Linkify;
 import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.View;
@@ -499,13 +501,21 @@ public class MainActivity extends Activity {
                 "3. openled / closeled：大作业控制指令，设备端收到后回传 LED:ON 或 LED:OFF。\n\n" +
                 "4. 日志区域：显示发送和接收的数据。\n\n" +
                 "5. 右上角三点菜单：可快速切换模式、连接、断开、清空日志和发送常用指令。\n\n" +
-                "本软件由“改名楠”开发，联系方式 QQ:2904153061@qq.com";
+                "本软件由“改名楠”开发，GitHub: https://github.com/sixiaopangai";
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("使用教程")
                 .setMessage(message)
                 .setPositiveButton("知道了", null)
-                .show();
+                .create();
+        dialog.show();
+
+        TextView messageView = dialog.findViewById(android.R.id.message);
+        if (messageView != null) {
+            Linkify.addLinks(messageView, Linkify.WEB_URLS);
+            messageView.setMovementMethod(LinkMovementMethod.getInstance());
+            messageView.setLinksClickable(true);
+        }
     }
 
     private void sendToClientSocket(byte[] data) {
