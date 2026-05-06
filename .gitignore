@@ -1,0 +1,30 @@
+# Build outputs
+build/
+*.apk
+*.idsig
+*.class
+*.jar
+*.dex
+*.o
+server
+client
+
+# Local IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local secrets / environment
+.env
+*.pem
+*.key
+id_rsa*
+
+# Assignment-only local materials
+*.exe
+*.rar
+*.zip
+*.png
+*.jpg
+*.jpeg
