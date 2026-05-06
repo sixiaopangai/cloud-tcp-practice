@@ -1,12 +1,18 @@
 package cn.edu.practice.tcpclient;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -51,6 +57,7 @@ public class MainActivity extends Activity {
     private static final int COLOR_BORDER = Color.rgb(210, 216, 216);
     private static final int COLOR_BG = Color.rgb(250, 250, 250);
     private static final Charset UTF8 = Charset.forName("UTF-8");
+    private static final int REQUEST_CAMERA_PERMISSION = 1001;
 
     private Handler mainHandler;
     private Spinner modeSpinner;
@@ -71,6 +78,9 @@ public class MainActivity extends Activity {
     private final List<Socket> serverClients = Collections.synchronizedList(new ArrayList<Socket>());
     private SharedPreferences preferences;
     private String lastClientHost = "";
+    private String torchCameraId;
+    private Boolean pendingTorchState;
+    private volatile boolean torchEnabled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -401,6 +411,7 @@ public class MainActivity extends Activity {
                 }
                 String message = new String(buffer, 0, len, UTF8);
                 appendLog("<- " + from + ": " + message);
+                handleIncomingMessage(message);
             }
         } catch (IOException e) {
             if (running) {
@@ -499,8 +510,9 @@ public class MainActivity extends Activity {
                 "1. TCP Client：填写服务器地址和端口，点击连接后发送消息。\n\n" +
                 "2. TCP Server：切换到 TCP Server 后点击监听，其他设备可连接本机 IP 和端口。\n\n" +
                 "3. openled / closeled：大作业控制指令，设备端收到后回传 LED:ON 或 LED:OFF。\n\n" +
-                "4. 日志区域：显示发送和接收的数据。\n\n" +
-                "5. 右上角三点菜单：可快速切换模式、连接、断开、清空日志和发送常用指令。\n\n" +
+                "4. 手电筒联动：本机收到 LED:ON 会尝试打开手电筒，收到 LED:OFF 会关闭手电筒。\n\n" +
+                "5. 日志区域：显示发送和接收的数据。\n\n" +
+                "6. 右上角三点菜单：可快速切换模式、连接、断开、清空日志和发送常用指令。\n\n" +
                 "本软件由“改名楠”开发，GitHub: https://github.com/sixiaopangai";
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -515,6 +527,113 @@ public class MainActivity extends Activity {
             Linkify.addLinks(messageView, Linkify.WEB_URLS);
             messageView.setMovementMethod(LinkMovementMethod.getInstance());
             messageView.setLinksClickable(true);
+        }
+    }
+
+    private void handleIncomingMessage(String message) {
+        String normalized = message.toUpperCase(Locale.US);
+        if (normalized.contains("LED:ON")) {
+            setTorch(true);
+        } else if (normalized.contains("LED:OFF")) {
+            setTorch(false);
+        }
+    }
+
+    private void setTorch(final boolean enabled) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            appendLog("手电筒控制需要 Android 6.0 或更高版本");
+            return;
+        }
+
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            pendingTorchState = enabled;
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    requestPermissions(new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+                }
+            });
+            appendLog("需要相机权限才能控制手电筒");
+            return;
+        }
+
+        applyTorch(enabled);
+    }
+
+    private void applyTorch(final boolean enabled) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+
+        try {
+            CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            if (cameraManager == null) {
+                appendLog("手电筒控制失败: 无法获取相机服务");
+                return;
+            }
+
+            String cameraId = getTorchCameraId(cameraManager);
+            if (cameraId == null) {
+                appendLog("当前设备没有可用闪光灯");
+                return;
+            }
+
+            cameraManager.setTorchMode(cameraId, enabled);
+            torchEnabled = enabled;
+            appendLog(enabled ? "手电筒已打开" : "手电筒已关闭");
+        } catch (CameraAccessException e) {
+            appendLog("手电筒控制失败: " + e.getMessage());
+        } catch (SecurityException e) {
+            appendLog("手电筒控制失败: 相机权限未授权");
+        }
+    }
+
+    private String getTorchCameraId(CameraManager cameraManager) throws CameraAccessException {
+        if (torchCameraId != null) {
+            return torchCameraId;
+        }
+
+        for (String cameraId : cameraManager.getCameraIdList()) {
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+            Boolean hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+            Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            if (Boolean.TRUE.equals(hasFlash)
+                    && lensFacing != null
+                    && lensFacing == CameraCharacteristics.LENS_FACING_BACK) {
+                torchCameraId = cameraId;
+                return torchCameraId;
+            }
+        }
+
+        for (String cameraId : cameraManager.getCameraIdList()) {
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+            Boolean hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+            if (Boolean.TRUE.equals(hasFlash)) {
+                torchCameraId = cameraId;
+                return torchCameraId;
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode != REQUEST_CAMERA_PERMISSION) {
+            return;
+        }
+
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            Boolean state = pendingTorchState;
+            pendingTorchState = null;
+            if (state != null) {
+                applyTorch(state);
+            }
+        } else {
+            pendingTorchState = null;
+            appendLog("相机权限被拒绝，无法控制手电筒");
         }
     }
 
@@ -841,6 +960,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (torchEnabled) {
+            applyTorch(false);
+        }
         disconnect();
         super.onDestroy();
     }

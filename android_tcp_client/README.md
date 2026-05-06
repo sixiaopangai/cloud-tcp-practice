@@ -9,9 +9,15 @@
 - 快捷发送：`openled`、`closeled`
 - 普通文本发送：例如 `hello`
 - 接收日志实时显示
+- 收到 `LED:ON` 自动打开手电筒，收到 `LED:OFF` 自动关闭手电筒
 - 地址和端口默认留空，由用户自行填写
 - 右上角 `?` 提供使用教程和 GitHub 作者链接
 - 右上角 `⋮` 提供切换模式、连接、断开、清空日志和快捷发送入口
+
+## 权限
+
+- `android.permission.INTERNET`：用于 TCP 网络通信
+- `android.permission.CAMERA`：仅用于调用系统手电筒能力
 
 ## 构建
 

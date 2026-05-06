@@ -6,8 +6,8 @@
 
 - 云服务器监听 TCP 端口，接收任意客户端数据并转发给其他在线客户端
 - Ubuntu 设备端接收 `openled` / `closeled` 指令，模拟 LED 开关并回传状态
-- Android TCP 调试助手支持 TCP Client、TCP Server、文本收发、快捷指令和使用教程
-- Android APK 只申请 `android.permission.INTERNET` 权限
+- Android TCP 调试助手支持 TCP Client、TCP Server、文本收发、快捷指令、使用教程和手电筒联动
+- Android APK 申请 `android.permission.INTERNET` 和 `android.permission.CAMERA` 权限；相机权限仅用于控制手电筒
 - 源码不包含个人服务器公网 IP，部署时通过运行参数或界面输入
 
 ## 目录结构
@@ -98,6 +98,8 @@ openled
 LED:ON
 ```
 
+Android 调试助手收到 `LED:ON` 后会尝试打开手机手电筒。
+
 发送：
 
 ```text
@@ -109,6 +111,8 @@ closeled
 ```text
 LED:OFF
 ```
+
+Android 调试助手收到 `LED:OFF` 后会尝试关闭手机手电筒。
 
 ## 隐私说明
 
