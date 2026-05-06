@@ -122,6 +122,10 @@ LED:OFF
 
 如果你 fork 或二次开发，请不要把自己的服务器 IP、密钥或账号信息写进公开提交。
 
+## License
+
+本项目基于 [MIT License](LICENSE) 开源。
+
 ## 作者
 
 改名楠<br>
