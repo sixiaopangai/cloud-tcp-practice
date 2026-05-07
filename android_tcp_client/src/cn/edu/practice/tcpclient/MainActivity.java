@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -58,6 +59,12 @@ public class MainActivity extends Activity {
     private static final int COLOR_BG = Color.rgb(250, 250, 250);
     private static final Charset UTF8 = Charset.forName("UTF-8");
     private static final int REQUEST_CAMERA_PERMISSION = 1001;
+    private static final String PROJECT_URL = "https://github.com/sixiaopangai/cloud-tcp-practice";
+    private static final String PREF_STROBE_ON_MS = "strobe_on_ms";
+    private static final String PREF_STROBE_OFF_MS = "strobe_off_ms";
+    private static final String PREF_LED_ON_MODE = "led_on_mode";
+    private static final int LED_ON_MODE_TORCH = 0;
+    private static final int LED_ON_MODE_STROBE = 1;
 
     private Handler mainHandler;
     private Spinner modeSpinner;
@@ -79,8 +86,13 @@ public class MainActivity extends Activity {
     private SharedPreferences preferences;
     private String lastClientHost = "";
     private String torchCameraId;
-    private Boolean pendingTorchState;
+    private Runnable pendingTorchAction;
     private volatile boolean torchEnabled = false;
+    private volatile boolean strobeRunning = false;
+    private Runnable strobeRunnable;
+    private int strobeGeneration = 0;
+    private StrobeSettings strobeSettings = StrobeSettings.defaults();
+    private int ledOnMode = LED_ON_MODE_TORCH;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,6 +101,8 @@ public class MainActivity extends Activity {
         mainHandler = new Handler(Looper.getMainLooper());
         preferences = getSharedPreferences("tcp_settings", MODE_PRIVATE);
         lastClientHost = preferences.getString("host", "");
+        strobeSettings = loadStrobeSettings();
+        ledOnMode = preferences.getInt(PREF_LED_ON_MODE, LED_ON_MODE_TORCH);
 
         setContentView(createContentView());
         updateModeUi();
@@ -452,6 +466,7 @@ public class MainActivity extends Activity {
         popupMenu.getMenu().add("发送 openled");
         popupMenu.getMenu().add("发送 closeled");
         popupMenu.getMenu().add("发送 hello");
+        popupMenu.getMenu().add("灯光控制");
 
         popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
             @Override
@@ -499,10 +514,155 @@ public class MainActivity extends Activity {
                     sendText("hello");
                     return true;
                 }
+                if ("灯光控制".equals(title)) {
+                    showLightControlDialog();
+                    return true;
+                }
                 return false;
             }
         });
         popupMenu.show();
+    }
+
+    private void showLightControlDialog() {
+        final LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(18), dp(8), dp(18), 0);
+
+        TextView controlLabel = dialogLabel("收到 LED:ON 后");
+        layout.addView(controlLabel);
+
+        final Spinner ledModeSpinner = new Spinner(this);
+        ArrayAdapter<String> modeAdapter = new ArrayAdapter<String>(
+                this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"常亮手电筒", "启动频闪"});
+        modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        ledModeSpinner.setAdapter(modeAdapter);
+        ledModeSpinner.setSelection(ledOnMode == LED_ON_MODE_STROBE ? 1 : 0);
+        layout.addView(ledModeSpinner, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)));
+
+        TextView frequencyLabel = dialogLabel("频闪频率");
+        frequencyLabel.setPadding(0, dp(10), 0, 0);
+        layout.addView(frequencyLabel);
+
+        LinearLayout frequencyRow = new LinearLayout(this);
+        frequencyRow.setOrientation(LinearLayout.HORIZONTAL);
+        frequencyRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        final EditText onInput = editText(String.valueOf(strobeSettings.getOnMs()));
+        onInput.setHint("亮灯ms");
+        onInput.setSingleLine(true);
+        onInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        final EditText offInput = editText(String.valueOf(strobeSettings.getOffMs()));
+        offInput.setHint("灭灯ms");
+        offInput.setSingleLine(true);
+        offInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+
+        frequencyRow.addView(onInput, new LinearLayout.LayoutParams(
+                0,
+                dp(48),
+                1));
+        frequencyRow.addView(space(dp(8), 1));
+        frequencyRow.addView(offInput, new LinearLayout.LayoutParams(
+                0,
+                dp(48),
+                1));
+        layout.addView(frequencyRow);
+
+        TextView hint = new TextView(this);
+        hint.setText("默认 500/500ms，范围 100-10000ms。");
+        hint.setTextColor(Color.rgb(92, 101, 101));
+        hint.setTextSize(13);
+        hint.setPadding(0, dp(6), 0, dp(6));
+        layout.addView(hint);
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setPadding(0, dp(6), 0, dp(6));
+        Button torchOnButton = outlineButton("打开灯");
+        Button strobeButton = outlineButton("开始频闪");
+        Button torchOffButton = outlineButton("关闭灯");
+        actionRow.addView(torchOnButton, weightedButtonParams());
+        actionRow.addView(space(dp(8), 1));
+        actionRow.addView(strobeButton, weightedButtonParams());
+        actionRow.addView(space(dp(8), 1));
+        actionRow.addView(torchOffButton, weightedButtonParams());
+        layout.addView(actionRow);
+
+        torchOnButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stopStrobeOnly();
+                setTorch(true);
+            }
+        });
+        strobeButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    StrobeSettings settings = StrobeSettings.fromText(
+                            onInput.getText().toString(),
+                            offInput.getText().toString());
+                    strobeSettings = settings;
+                    saveLightSettings();
+                    startStrobe(settings);
+                } catch (IllegalArgumentException e) {
+                    toast(e.getMessage());
+                }
+            }
+        });
+        torchOffButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stopStrobeAndTurnOff();
+            }
+        });
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("灯光控制")
+                .setView(layout)
+                .setPositiveButton("保存", null)
+                .setNegativeButton("关闭", null)
+                .setNeutralButton("停止频闪", null)
+                .create();
+
+        dialog.setOnShowListener(new DialogInterface.OnShowListener() {
+            @Override
+            public void onShow(final DialogInterface dialogInterface) {
+                final AlertDialog shownDialog = (AlertDialog) dialogInterface;
+                shownDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        try {
+                            StrobeSettings settings = StrobeSettings.fromText(
+                                    onInput.getText().toString(),
+                                    offInput.getText().toString());
+                            strobeSettings = settings;
+                            ledOnMode = ledModeSpinner.getSelectedItemPosition() == 1
+                                    ? LED_ON_MODE_STROBE
+                                    : LED_ON_MODE_TORCH;
+                            saveLightSettings();
+                            toast("灯光控制设置已保存");
+                            shownDialog.dismiss();
+                        } catch (IllegalArgumentException e) {
+                            toast(e.getMessage());
+                        }
+                    }
+                });
+
+                shownDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        stopStrobeAndTurnOff();
+                    }
+                });
+            }
+        });
+
+        dialog.show();
     }
 
     private void showHelpDialog() {
@@ -512,8 +672,10 @@ public class MainActivity extends Activity {
                 "3. openled / closeled：大作业控制指令，设备端收到后回传 LED:ON 或 LED:OFF。\n\n" +
                 "4. 手电筒联动：本机收到 LED:ON 会尝试打开手电筒，收到 LED:OFF 会关闭手电筒。\n\n" +
                 "5. 日志区域：显示发送和接收的数据。\n\n" +
-                "6. 右上角三点菜单：可快速切换模式、连接、断开、清空日志和发送常用指令。\n\n" +
-                "本软件由“改名楠”开发，GitHub: https://github.com/sixiaopangai";
+                "6. 灯光控制：右上角三点菜单进入，可选择 LED:ON 后常亮或频闪，并设置亮灯/灭灯毫秒数，默认 500/500ms。\n\n" +
+                "7. 远程频闪：收到 STROBE:ON:500:500 会按指定频率频闪，收到 STROBE:OFF 会停止频闪并关灯。\n\n" +
+                "8. 右上角三点菜单：可快速切换模式、连接、断开、清空日志、发送常用指令和进入灯光控制。\n\n" +
+                "本软件由“改名楠”开发，项目地址: " + PROJECT_URL;
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("使用教程")
@@ -531,11 +693,26 @@ public class MainActivity extends Activity {
     }
 
     private void handleIncomingMessage(String message) {
+        StrobeSettings.Command strobeCommand = StrobeSettings.parseCommand(message);
+        if (strobeCommand != null) {
+            if (strobeCommand.getType() == StrobeSettings.CommandType.START) {
+                startStrobe(strobeCommand.getSettings());
+            } else {
+                stopStrobeAndTurnOff();
+            }
+            return;
+        }
+
         String normalized = message.toUpperCase(Locale.US);
         if (normalized.contains("LED:ON")) {
-            setTorch(true);
+            if (ledOnMode == LED_ON_MODE_STROBE) {
+                startStrobe(strobeSettings);
+            } else {
+                stopStrobeOnly();
+                setTorch(true);
+            }
         } else if (normalized.contains("LED:OFF")) {
-            setTorch(false);
+            stopStrobeAndTurnOff();
         }
     }
 
@@ -546,7 +723,12 @@ public class MainActivity extends Activity {
         }
 
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            pendingTorchState = enabled;
+            pendingTorchAction = new Runnable() {
+                @Override
+                public void run() {
+                    applyTorch(enabled);
+                }
+            };
             mainHandler.post(new Runnable() {
                 @Override
                 public void run() {
@@ -560,7 +742,94 @@ public class MainActivity extends Activity {
         applyTorch(enabled);
     }
 
+    private void startStrobe(final StrobeSettings settings) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            appendLog("频闪控制需要 Android 6.0 或更高版本");
+            return;
+        }
+
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            pendingTorchAction = new Runnable() {
+                @Override
+                public void run() {
+                    beginStrobe(settings);
+                }
+            };
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    requestPermissions(new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+                }
+            });
+            appendLog("需要相机权限才能控制频闪");
+            return;
+        }
+
+        beginStrobe(settings);
+    }
+
+    private void beginStrobe(final StrobeSettings settings) {
+        stopStrobeOnly();
+        strobeSettings = settings;
+        strobeRunning = true;
+        final int generation = ++strobeGeneration;
+        appendLog("频闪已启动: 亮 " + settings.getOnMs() + "ms / 灭 " + settings.getOffMs() + "ms");
+
+        strobeRunnable = new Runnable() {
+            private boolean nextEnabled = true;
+
+            @Override
+            public void run() {
+                if (!strobeRunning || generation != strobeGeneration) {
+                    return;
+                }
+
+                applyTorch(nextEnabled, false);
+                int delay = nextEnabled ? settings.getOnMs() : settings.getOffMs();
+                nextEnabled = !nextEnabled;
+                mainHandler.postDelayed(this, delay);
+            }
+        };
+        mainHandler.post(strobeRunnable);
+    }
+
+    private void stopStrobeAndTurnOff() {
+        boolean wasRunning = strobeRunning;
+        stopStrobeOnly();
+        setTorch(false);
+        if (wasRunning) {
+            appendLog("频闪已停止");
+        }
+    }
+
+    private void stopStrobeOnly() {
+        strobeRunning = false;
+        strobeGeneration++;
+        if (strobeRunnable != null) {
+            mainHandler.removeCallbacks(strobeRunnable);
+            strobeRunnable = null;
+        }
+    }
+
+    private StrobeSettings loadStrobeSettings() {
+        return StrobeSettings.fromText(
+                String.valueOf(preferences.getInt(PREF_STROBE_ON_MS, StrobeSettings.DEFAULT_ON_MS)),
+                String.valueOf(preferences.getInt(PREF_STROBE_OFF_MS, StrobeSettings.DEFAULT_OFF_MS)));
+    }
+
+    private void saveLightSettings() {
+        preferences.edit()
+                .putInt(PREF_STROBE_ON_MS, strobeSettings.getOnMs())
+                .putInt(PREF_STROBE_OFF_MS, strobeSettings.getOffMs())
+                .putInt(PREF_LED_ON_MODE, ledOnMode)
+                .apply();
+    }
+
     private void applyTorch(final boolean enabled) {
+        applyTorch(enabled, true);
+    }
+
+    private void applyTorch(final boolean enabled, boolean writeLog) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return;
         }
@@ -580,7 +849,9 @@ public class MainActivity extends Activity {
 
             cameraManager.setTorchMode(cameraId, enabled);
             torchEnabled = enabled;
-            appendLog(enabled ? "手电筒已打开" : "手电筒已关闭");
+            if (writeLog) {
+                appendLog(enabled ? "手电筒已打开" : "手电筒已关闭");
+            }
         } catch (CameraAccessException e) {
             appendLog("手电筒控制失败: " + e.getMessage());
         } catch (SecurityException e) {
@@ -626,13 +897,13 @@ public class MainActivity extends Activity {
         }
 
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            Boolean state = pendingTorchState;
-            pendingTorchState = null;
-            if (state != null) {
-                applyTorch(state);
+            Runnable action = pendingTorchAction;
+            pendingTorchAction = null;
+            if (action != null) {
+                action.run();
             }
         } else {
-            pendingTorchState = null;
+            pendingTorchAction = null;
             appendLog("相机权限被拒绝，无法控制手电筒");
         }
     }
@@ -863,6 +1134,12 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    private TextView dialogLabel(String text) {
+        TextView label = label(text);
+        label.setPadding(0, 0, 0, dp(4));
+        return label;
+    }
+
     private EditText editText(String value) {
         EditText editText = new EditText(this);
         editText.setText(value);
@@ -960,6 +1237,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopStrobeOnly();
         if (torchEnabled) {
             applyTorch(false);
         }

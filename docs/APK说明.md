@@ -22,10 +22,10 @@ cn.edu.practice.tcpclient
 TCP调试助手
 ```
 
-作者主页：
+项目地址：
 
 ```text
-https://github.com/sixiaopangai
+https://github.com/sixiaopangai/cloud-tcp-practice
 ```
 
 ## 与参考 APK 的区别
@@ -48,6 +48,9 @@ android.permission.CAMERA
 - 文本发送和接收日志
 - 收到 `LED:ON` 自动打开手电筒
 - 收到 `LED:OFF` 自动关闭手电筒
+- 右上角 `⋮` 的“灯光控制”可设置 `LED:ON` 后常亮或频闪
+- 收到 `STROBE:ON:500:500` 按指定频率频闪
+- 收到 `STROBE:OFF` 停止频闪并关闭手电筒
 - 快捷发送 `openled`
 - 快捷发送 `closeled`
 - 快捷发送 `hello`
