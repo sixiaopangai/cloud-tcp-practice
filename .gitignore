@@ -5,9 +5,12 @@ build/
 *.class
 *.jar
 *.dex
+*.spec
 *.o
 server
 client
+dist/
+__pycache__/
 
 # Local IDE and OS files
 .idea/

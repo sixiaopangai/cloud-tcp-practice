@@ -467,6 +467,7 @@ public class MainActivity extends Activity {
         popupMenu.getMenu().add("发送 closeled");
         popupMenu.getMenu().add("发送 hello");
         popupMenu.getMenu().add("灯光控制");
+        popupMenu.getMenu().add("本机自测");
 
         popupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
             @Override
@@ -518,10 +519,46 @@ public class MainActivity extends Activity {
                     showLightControlDialog();
                     return true;
                 }
+                if ("本机自测".equals(title)) {
+                    runLoopbackSelfTest();
+                    return true;
+                }
                 return false;
             }
         });
         popupMenu.show();
+    }
+
+    private void runLoopbackSelfTest() {
+        if (running) {
+            disconnect();
+        }
+
+        final int port = parseSelfTestPort();
+        if (port <= 0) {
+            return;
+        }
+
+        appendLog("本机自测开始: " + LoopbackSelfTest.HOST + ":" + port);
+        postStatus("正在进行本机自测");
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    LoopbackSelfTest.Result result = LoopbackSelfTest.run(port, "SELFTEST:HELLO", 3000);
+                    appendLog("本机自测发送: " + result.getSentMessage());
+                    appendLog("本机自测服务端收到: " + result.getServerReceivedMessage());
+                    appendLog("本机自测客户端收到: " + result.getClientReceivedReply());
+                    appendLog("本机自测成功: " + result.getHost() + ":" + result.getPort()
+                            + "，耗时 " + result.getDurationMs() + "ms");
+                    postStatus("本机自测成功");
+                } catch (Exception e) {
+                    appendLog("本机自测失败: " + e.getMessage());
+                    postStatus("本机自测失败");
+                }
+            }
+        }).start();
     }
 
     private void showLightControlDialog() {
@@ -674,7 +711,8 @@ public class MainActivity extends Activity {
                 "5. 日志区域：显示发送和接收的数据。\n\n" +
                 "6. 灯光控制：右上角三点菜单进入，可选择 LED:ON 后常亮或频闪，并设置亮灯/灭灯毫秒数，默认 500/500ms。\n\n" +
                 "7. 远程频闪：收到 STROBE:ON:500:500 会按指定频率频闪，收到 STROBE:OFF 会停止频闪并关灯。\n\n" +
-                "8. 右上角三点菜单：可快速切换模式、连接、断开、清空日志、发送常用指令和进入灯光控制。\n\n" +
+                "8. 本机自测：右上角三点菜单进入，会在手机内部临时监听 127.0.0.1:端口，再由内部客户端连接并收发测试数据。\n\n" +
+                "9. 右上角三点菜单：可快速切换模式、连接、断开、清空日志、发送常用指令、灯光控制和本机自测。\n\n" +
                 "本软件由“改名楠”开发，项目地址: " + PROJECT_URL;
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -1038,6 +1076,25 @@ public class MainActivity extends Activity {
             return port;
         } catch (NumberFormatException e) {
             toast("端口格式不正确");
+            return -1;
+        }
+    }
+
+    private int parseSelfTestPort() {
+        String text = portInput.getText().toString().trim();
+        if (text.length() == 0) {
+            return LoopbackSelfTest.DEFAULT_PORT;
+        }
+
+        try {
+            int port = Integer.parseInt(text);
+            if (port <= 0 || port > 65535) {
+                toast("本机自测端口范围应为 1-65535");
+                return -1;
+            }
+            return port;
+        } catch (NumberFormatException e) {
+            toast("本机自测端口格式不正确");
             return -1;
         }
     }

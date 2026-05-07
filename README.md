@@ -6,7 +6,8 @@
 
 - 云服务器监听 TCP 端口，接收任意客户端数据并转发给其他在线客户端
 - Ubuntu 设备端接收 `openled` / `closeled` 指令，模拟 LED 开关并回传状态
-- Android TCP 调试助手支持 TCP Client、TCP Server、文本收发、快捷指令、使用教程、手电筒联动和频闪控制
+- Android TCP 调试助手支持 TCP Client、TCP Server、文本收发、快捷指令、使用教程、手电筒联动、频闪控制和本机自测
+- 桌面 TCP 调试助手支持 Windows/Ubuntu，包含 TCP Client、TCP Server、HEX、定时发送、日志保存和本次作业快捷指令
 - Android APK 申请 `android.permission.INTERNET` 和 `android.permission.CAMERA` 权限；相机权限仅用于控制手电筒
 - 源码不包含个人服务器公网 IP，部署时通过运行参数或界面输入
 
@@ -17,6 +18,7 @@
 | `cloud_server/pth_server.c` | 云服务器端 TCP 多线程转发程序 |
 | `device_client/client.c` | Ubuntu 设备端模拟程序 |
 | `android_tcp_client/` | Android TCP 调试助手源码和无 Gradle 构建脚本 |
+| `desktop_tcp_assistant/` | 跨平台桌面 TCP 调试助手源码和 Windows EXE 打包脚本 |
 | `docs/提交说明.md` | 实训启动顺序、截图清单和常见问题 |
 | `docs/APK说明.md` | Android APK 功能、权限和安装说明 |
 
@@ -84,6 +86,22 @@ android_tcp_client/build/TCP调试助手.apk
 端口：9999
 ```
 
+### 4. 桌面调试助手
+
+Windows 或 Ubuntu 可直接运行 Python 版：
+
+```bash
+cd desktop_tcp_assistant
+python tcp_assistant.py
+```
+
+Windows 也可以打包成独立 EXE：
+
+```powershell
+cd desktop_tcp_assistant
+.\build_windows_exe.ps1
+```
+
 ## 测试指令
 
 发送：
@@ -129,6 +147,8 @@ STROBE:OFF
 ```
 
 预期 Android 调试助手停止频闪并关闭手电筒。
+
+手机端也可以在右上角 `⋮` 中点击“本机自测”。该功能会在手机内部临时监听 `127.0.0.1:9999`，再由内部客户端连接并收发 `SELFTEST:HELLO`，用于验证本机 TCP 监听和连接逻辑。
 
 ## 隐私说明
 
